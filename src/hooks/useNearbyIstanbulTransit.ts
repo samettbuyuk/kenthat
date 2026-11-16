@@ -223,9 +223,17 @@ async function resolveSeedWithPlaces(
   placesLib: google.maps.PlacesLibrary,
   seed: IstanbulStationSeed,
   origin: LatLngPoint
-): Promise<TransitStop> {
+): Promise<TransitStop | null> {
+  const userContinent = getIstanbulContinent(origin.lat, origin.lng);
+  const seedContinent = getIstanbulContinent(seed.location.lat, seed.location.lng);
+
+  // STRICT REQUIREMENT: If user is on European side, strictly ignore Anatolian Marmaray/Tram stations and vice versa!
+  if (userContinent !== seedContinent) {
+    return null;
+  }
+
   const fallbackDist = haversineDistanceMeters(origin, seed.location);
-  const fallbackStop: TransitStop = {
+  const stop: TransitStop = {
     id: seed.id,
     name: seed.name,
     address: `İstanbul · ${seed.lines.join(', ')}`,
@@ -246,108 +254,23 @@ async function resolveSeedWithPlaces(
     lineHintLabel: seed.lines.join(' · '),
   };
 
-  try {
-    const { places } = await placesLib.Place.searchByText({
-      fields: PLACE_FIELDS,
-      textQuery: seed.searchQuery,
-      locationBias: { center: seed.location, radius: 650 },
-      maxResultCount: 4,
-      language: 'tr',
-      region: 'TR',
-      internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'],
-    });
+  return stop;
+}
 
-    if (places && places.length > 0) {
-      for (const p of places) {
-        if (!p.location || !p.id) continue;
-        const pLoc = { lat: p.location.lat(), lng: p.location.lng() };
-        const offsetFromSeed = haversineDistanceMeters(seed.location, pLoc);
-        const pName = (p.displayName || '').toLocaleLowerCase('tr-TR');
-        const pTypes = p.types || [];
-
-        const maxSeedOffset = seed.mode === 'marmaray' ? 450 : 900;
-        if (offsetFromSeed > maxSeedOffset) continue;
-        if (!isTransitPlaceEntity(p.primaryType, pTypes)) continue;
-        if (isStationExitOrNonStop(p.displayName || '')) continue;
-        if (p.primaryType === 'bus_stop') continue;
-
-        if (seed.mode === 'metrobus' && p.primaryType === 'subway_station') continue;
-        if (seed.mode === 'marmaray') {
-          const isWrongStationType =
-            p.primaryType === 'subway_station' ||
-            p.primaryType === 'light_rail_station' ||
-            p.primaryType === 'ferry_terminal' ||
-            p.primaryType === 'bus_station' ||
-            pTypes.includes('subway_station') ||
-            pTypes.includes('light_rail_station') ||
-            pTypes.includes('ferry_terminal');
-          if (
-            isWrongStationType ||
-            pName.includes('metrobüs') ||
-            pName.includes('metrobus') ||
-            hasTramNameOrCode(pName) ||
-            (pName.includes('metro') && !pName.includes('marmaray')) ||
-            pName.includes('vapur') ||
-            pName.includes('iskele')
-          ) {
-            continue;
-          }
-        }
-        if (
-          seed.mode === 'metro' &&
-          (pName.includes('metrobüs') ||
-            hasTramNameOrCode(pName) ||
-            p.primaryType === 'light_rail_station')
-        ) {
-          continue;
-        }
-        if (
-          seed.mode === 'tram' &&
-          (p.primaryType === 'subway_station' ||
-            pTypes.includes('subway_station') ||
-            (hasMetroNameOrCode(pName) && !pName.includes('tramvay')) ||
-            pName.includes('marmaray') ||
-            pName.includes('metrobüs'))
-        ) {
-          continue;
-        }
-
-        const resolvedName =
-          seed.mode === 'marmaray' && !pName.includes('marmaray')
-            ? seed.name
-            : p.displayName || seed.name;
-
-        const dist = haversineDistanceMeters(origin, pLoc);
-        return {
-          id: p.id,
-          name: resolvedName,
-          address: p.shortFormattedAddress || p.formattedAddress || 'İstanbul',
-          location: pLoc,
-          mode: seed.mode,
-          placeTypes: pTypes.length > 0 ? pTypes : fallbackStop.placeTypes,
-          googleMapsUri: p.googleMapsURI || undefined,
-          distanceMeters: dist,
-          walkingMinutes: estimateWalkingMinutes(dist),
-          isExactRouteMatrix: false,
-          isWalkable: true,
-          lineHintLabel: seed.lines.join(' · '),
-        };
-      }
-    }
-  } catch (err) {
-    console.warn(`Station resolve fallback for ${seed.name}:`, err);
-  }
-
-  return fallbackStop;
+function getIstanbulContinent(lat: number, lng: number): 'european' | 'anatolian' {
+  // Bosphorus is roughly around 29.04 lng. West of 29.035 is European, East is Anatolian.
+  return lng < 29.035 ? 'european' : 'anatolian';
 }
 
 function selectBestStopPerMode(
-  candidatesByMode: Record<TransitMode, TransitStop[]>
+  candidatesByMode: Record<TransitMode, TransitStop[]>,
+  userLocation: LatLngPoint | null
 ): Partial<Record<TransitMode, TransitStop>> {
   const result: Partial<Record<TransitMode, TransitStop>> = {};
   const usedIds = new Set<string>();
 
-  // Prioritize distinct rail/BRT modes before tram & bus so shared hub IDs never repeat across Metro and Tramvay
+  const userContinent = userLocation ? getIstanbulContinent(userLocation.lat, userLocation.lng) : null;
+
   const priorityOrder: TransitMode[] = [
     'metro',
     'marmaray',
@@ -358,18 +281,35 @@ function selectBestStopPerMode(
   ];
 
   for (const mode of priorityOrder) {
-    const list = candidatesByMode[mode];
-    if (!list || list.length === 0) continue;
+    const list = candidatesByMode[mode] || [];
+    if (list.length === 0) continue;
 
-    const sorted = [...list].sort((a, b) => {
+    // Filter strictly to same continent if userContinent is known
+    const sameContinentList = userContinent
+      ? list.filter((s) => getIstanbulContinent(s.location.lat, s.location.lng) === userContinent)
+      : list;
+
+    const pool = sameContinentList.length > 0 ? sameContinentList : list;
+
+    const sorted = [...pool].sort((a, b) => {
       const aWalk = a.isWalkable !== false ? 0 : 1;
       const bWalk = b.isWalkable !== false ? 0 : 1;
       if (aWalk !== bWalk) return aWalk - bWalk;
 
       if (mode === 'tram') {
-        const aTram = a.lineHintLabel || a.name.toLocaleLowerCase('tr-TR').includes('tramvay') ? 0 : 1;
-        const bTram = b.lineHintLabel || b.name.toLocaleLowerCase('tr-TR').includes('tramvay') ? 0 : 1;
+        const aName = a.name.toLocaleLowerCase('tr-TR');
+        const bName = b.name.toLocaleLowerCase('tr-TR');
+        const aTram = aName.includes('tramvay') || a.lineHintLabel ? 0 : 1;
+        const bTram = bName.includes('tramvay') || b.lineHintLabel ? 0 : 1;
         if (aTram !== bTram) return aTram - bTram;
+      }
+
+      if (mode === 'marmaray') {
+        const aName = a.name.toLocaleLowerCase('tr-TR');
+        const bName = b.name.toLocaleLowerCase('tr-TR');
+        const aMr = aName.includes('marmaray') ? 0 : 1;
+        const bMr = bName.includes('marmaray') ? 0 : 1;
+        if (aMr !== bMr) return aMr - bMr;
       }
 
       const aExact = a.isExactRouteMatrix ? 0 : 1;
@@ -380,8 +320,10 @@ function selectBestStopPerMode(
     });
 
     const chosen = sorted.find((s) => !usedIds.has(s.id)) || sorted[0];
-    usedIds.add(chosen.id);
-    result[mode] = chosen;
+    if (chosen) {
+      usedIds.add(chosen.id);
+      result[mode] = chosen;
+    }
   }
   return result;
 }
@@ -602,7 +544,7 @@ export function useNearbyIstanbulTransit(
         if (cancelled || activeRequestRef.current !== requestId) return;
 
         for (const res of seedResolutions) {
-          if (res.status === 'fulfilled') {
+          if (res.status === 'fulfilled' && res.value) {
             mergeStopCandidate(res.value);
           }
         }
@@ -643,7 +585,7 @@ export function useNearbyIstanbulTransit(
           return;
         }
 
-        const initialClosest = selectBestStopPerMode(topCandidatesByMode);
+        const initialClosest = selectBestStopPerMode(topCandidatesByMode, userLocation);
         setClosestByMode(initialClosest);
         setStopsForMap(
           Object.values(initialClosest).filter(
@@ -772,7 +714,7 @@ export function useNearbyIstanbulTransit(
             );
           }
 
-          const finalClosest = selectBestStopPerMode(finalByMode);
+          const finalClosest = selectBestStopPerMode(finalByMode, userLocation);
           setClosestByMode(finalClosest);
           setStopsForMap(
             Object.values(finalClosest).filter(

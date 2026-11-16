@@ -23,6 +23,7 @@ import {
   getIstanbulLineColors,
 } from '../utils/transitUtils';
 import { CrowdednessMeter } from './CrowdednessMeter';
+import { StopScheduleTableView } from './StopScheduleTableView';
 import { TransitModeIcon } from './TransitModeIcon';
 
 interface StopLinesPanelProps {
@@ -326,6 +327,11 @@ export function StopLinesPanel({
             </p>
           </div>
         )}
+
+        {/* Detailed Schedule View Table */}
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-800">
+          <StopScheduleTableView stop={stop} details={details} />
+        </div>
 
         {/* Platform / Stop Codes from Google Places TransitStation */}
         {details && details.platforms.length > 0 && (
