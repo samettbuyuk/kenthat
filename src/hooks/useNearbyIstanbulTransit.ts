@@ -89,11 +89,32 @@ function parsePlaceToStop(
       return null;
     }
   } else if (expectedMode === 'marmaray') {
+    const isOtherStationType =
+      primaryType === 'subway_station' ||
+      primaryType === 'light_rail_station' ||
+      primaryType === 'ferry_terminal' ||
+      primaryType === 'bus_stop' ||
+      primaryType === 'bus_station' ||
+      types.includes('subway_station') ||
+      types.includes('light_rail_station') ||
+      types.includes('ferry_terminal');
+
+    const hasOtherModeWord =
+      normalized.includes('metrobüs') ||
+      normalized.includes('metrobus') ||
+      normalized.includes('tramvay') ||
+      normalized.includes('vapur') ||
+      normalized.includes('iskele') ||
+      normalized.includes('haydarpaşa') ||
+      normalized.includes('yht') ||
+      (normalized.includes('metro') && !normalized.includes('marmaray'));
+
     if (
-      normalized.includes('marmaray') ||
-      (primaryType === 'train_station' &&
-        !normalized.includes('metro') &&
-        !normalized.includes('haydarpaşa'))
+      !isOtherStationType &&
+      !hasOtherModeWord &&
+      (normalized.includes('marmaray') ||
+        primaryType === 'train_station' ||
+        types.includes('train_station'))
     ) {
       mode = 'marmaray';
     } else {
@@ -242,13 +263,36 @@ async function resolveSeedWithPlaces(
         const pLoc = { lat: p.location.lat(), lng: p.location.lng() };
         const offsetFromSeed = haversineDistanceMeters(seed.location, pLoc);
         const pName = (p.displayName || '').toLocaleLowerCase('tr-TR');
+        const pTypes = p.types || [];
 
-        if (offsetFromSeed > 900) continue;
-        if (!isTransitPlaceEntity(p.primaryType, p.types || [])) continue;
+        const maxSeedOffset = seed.mode === 'marmaray' ? 450 : 900;
+        if (offsetFromSeed > maxSeedOffset) continue;
+        if (!isTransitPlaceEntity(p.primaryType, pTypes)) continue;
         if (isStationExitOrNonStop(p.displayName || '')) continue;
         if (p.primaryType === 'bus_stop') continue;
 
         if (seed.mode === 'metrobus' && p.primaryType === 'subway_station') continue;
+        if (seed.mode === 'marmaray') {
+          const isWrongStationType =
+            p.primaryType === 'subway_station' ||
+            p.primaryType === 'light_rail_station' ||
+            p.primaryType === 'ferry_terminal' ||
+            p.primaryType === 'bus_station' ||
+            pTypes.includes('subway_station') ||
+            pTypes.includes('light_rail_station') ||
+            pTypes.includes('ferry_terminal');
+          if (
+            isWrongStationType ||
+            pName.includes('metrobüs') ||
+            pName.includes('metrobus') ||
+            hasTramNameOrCode(pName) ||
+            (pName.includes('metro') && !pName.includes('marmaray')) ||
+            pName.includes('vapur') ||
+            pName.includes('iskele')
+          ) {
+            continue;
+          }
+        }
         if (
           seed.mode === 'metro' &&
           (pName.includes('metrobüs') ||
@@ -260,7 +304,7 @@ async function resolveSeedWithPlaces(
         if (
           seed.mode === 'tram' &&
           (p.primaryType === 'subway_station' ||
-            p.types?.includes('subway_station') ||
+            pTypes.includes('subway_station') ||
             (hasMetroNameOrCode(pName) && !pName.includes('tramvay')) ||
             pName.includes('marmaray') ||
             pName.includes('metrobüs'))
@@ -268,14 +312,19 @@ async function resolveSeedWithPlaces(
           continue;
         }
 
+        const resolvedName =
+          seed.mode === 'marmaray' && !pName.includes('marmaray')
+            ? seed.name
+            : p.displayName || seed.name;
+
         const dist = haversineDistanceMeters(origin, pLoc);
         return {
           id: p.id,
-          name: p.displayName || seed.name,
+          name: resolvedName,
           address: p.shortFormattedAddress || p.formattedAddress || 'İstanbul',
           location: pLoc,
           mode: seed.mode,
-          placeTypes: p.types || fallbackStop.placeTypes,
+          placeTypes: pTypes.length > 0 ? pTypes : fallbackStop.placeTypes,
           googleMapsUri: p.googleMapsURI || undefined,
           distanceMeters: dist,
           walkingMinutes: estimateWalkingMinutes(dist),
@@ -316,12 +365,6 @@ function selectBestStopPerMode(
       const aWalk = a.isWalkable !== false ? 0 : 1;
       const bWalk = b.isWalkable !== false ? 0 : 1;
       if (aWalk !== bWalk) return aWalk - bWalk;
-
-      if (mode === 'marmaray') {
-        const aMarmaray = a.name.toLocaleLowerCase('tr-TR').includes('marmaray') ? 0 : 1;
-        const bMarmaray = b.name.toLocaleLowerCase('tr-TR').includes('marmaray') ? 0 : 1;
-        if (aMarmaray !== bMarmaray) return aMarmaray - bMarmaray;
-      }
 
       if (mode === 'tram') {
         const aTram = a.lineHintLabel || a.name.toLocaleLowerCase('tr-TR').includes('tramvay') ? 0 : 1;
@@ -421,8 +464,14 @@ export function useNearbyIstanbulTransit(
             stop.id.length > 14;
           if (existingIsSeed && newIsRealPlace) {
             delete bucket[existingNearby.id];
+            const keptName =
+              stop.mode === 'marmaray' &&
+              !stop.name.toLocaleLowerCase('tr-TR').includes('marmaray')
+                ? existingNearby.name
+                : stop.name;
             bucket[stop.id] = {
               ...stop,
+              name: keptName,
               lineHintLabel: stop.lineHintLabel || existingNearby.lineHintLabel,
             };
           } else if (!existingNearby.lineHintLabel && stop.lineHintLabel) {

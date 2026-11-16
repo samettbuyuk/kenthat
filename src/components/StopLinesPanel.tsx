@@ -9,7 +9,11 @@ import {
   Route,
   TrainFront,
 } from 'lucide-react';
-import type { StopTransitDetails, TransitStop } from '../types/transit';
+import type {
+  StopCrowdednessInfo,
+  StopTransitDetails,
+  TransitStop,
+} from '../types/transit';
 import {
   TRANSIT_MODE_META,
   formatClockTime,
@@ -18,10 +22,12 @@ import {
   formatWalkingDuration,
   getIstanbulLineColors,
 } from '../utils/transitUtils';
+import { CrowdednessMeter } from './CrowdednessMeter';
 import { TransitModeIcon } from './TransitModeIcon';
 
 interface StopLinesPanelProps {
   stop: TransitStop | null;
+  crowdednessInfo?: StopCrowdednessInfo;
   details: StopTransitDetails | null;
   isLoading: boolean;
   error: string | null;
@@ -31,6 +37,7 @@ interface StopLinesPanelProps {
 
 export function StopLinesPanel({
   stop,
+  crowdednessInfo,
   details,
   isLoading,
   error,
@@ -123,6 +130,27 @@ export function StopLinesPanel({
             />
           </button>
         </div>
+
+        {crowdednessInfo && (
+          <div className="mt-3 px-3 py-2 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs">
+            <div className="flex items-center gap-2">
+              <CrowdednessMeter info={crowdednessInfo} />
+              <span className="text-slate-400 dark:text-slate-600" aria-hidden="true">
+                ·
+              </span>
+              <span className="text-slate-600 dark:text-slate-300 font-mono-tabular">
+                {crowdednessInfo.trend === 'rising'
+                  ? 'Artıyor'
+                  : crowdednessInfo.trend === 'falling'
+                  ? 'Azalıyor'
+                  : 'Dengeli'}
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              {crowdednessInfo.advice}
+            </span>
+          </div>
+        )}
 
         {/* Quick Actions inside Selected Stop Board */}
         <div className="mt-3.5 flex flex-wrap items-center gap-2">

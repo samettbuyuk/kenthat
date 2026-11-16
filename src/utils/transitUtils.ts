@@ -84,7 +84,7 @@ export function isTransitPlaceEntity(
 
 export function isStationExitOrNonStop(displayName: string): boolean {
   const normalized = displayName.toLocaleLowerCase('tr-TR');
-  return /\b(çıkış|çıkışı|giriş|girişi|exit|entrance|asansör|asansörü|otopark|müdürlüğü|biletmatik|gişe|istanbulkart|taksi|büfe|cafe|restoran|otel|market|avm|mağaza)\b/.test(
+  return /\b(çıkış|çıkışı|giriş|girişi|exit|entrance|asansör|asansörü|otopark|müdürlüğü|işletme|şantiye|altgeçit|altgeçidi|üstgeçit|üstgeçidi|biletmatik|gişe|istanbulkart|taksi|büfe|cafe|restoran|otel|market|avm|mağaza|parkı)\b/.test(
     normalized
   );
 }

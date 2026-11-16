@@ -7,7 +7,12 @@ import {
   MapPin,
   Navigation,
 } from 'lucide-react';
-import type { LatLngPoint, TransitMode, TransitStop } from '../types/transit';
+import type {
+  LatLngPoint,
+  StopCrowdednessInfo,
+  TransitMode,
+  TransitStop,
+} from '../types/transit';
 import {
   TRANSIT_MODE_META,
   TRANSIT_MODE_ORDER,
@@ -16,10 +21,12 @@ import {
   formatDistanceMeters,
   formatWalkingDuration,
 } from '../utils/transitUtils';
+import { CrowdednessMeter } from './CrowdednessMeter';
 import { TransitModeIcon } from './TransitModeIcon';
 
 interface ModeSummaryGridProps {
   closestByMode: Partial<Record<TransitMode, TransitStop>>;
+  crowdednessByStopId?: Record<string, StopCrowdednessInfo>;
   userLocation: LatLngPoint | null;
   selectedStopId: string | null;
   hoveredStopId: string | null;
@@ -32,6 +39,7 @@ interface ModeSummaryGridProps {
 
 export function ModeSummaryGrid({
   closestByMode,
+  crowdednessByStopId,
   userLocation,
   selectedStopId,
   hoveredStopId,
@@ -221,32 +229,34 @@ export function ModeSummaryGrid({
                 <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 space-y-2.5">
                   {/* Walking Metric Line + Proximity Progress */}
                   <div className="flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
-                    <span className="inline-flex items-center gap-1.5 font-mono-tabular">
-                      <Footprints
-                        className="w-3.5 h-3.5 text-blue-600 dark:text-sky-400"
-                        aria-hidden="true"
-                      />
-                      {stop.isWalkable === false ? (
-                        <span>
-                          Yaya rotası yok ({formatDistanceKm(stop.distanceMeters)} kuş
-                          uçuşu)
-                        </span>
-                      ) : (
-                        <span>
-                          Yürüyerek {formatWalkingDuration(stop.walkingMinutes)} ·{' '}
-                          {stop.distanceMeters < 1000
-                            ? formatDistanceMeters(stop.distanceMeters)
-                            : formatDistanceKm(stop.distanceMeters)}
-                        </span>
-                      )}
-                    </span>
-
-                    {isSelected && (
-                      <span className="text-[11px] font-semibold text-blue-600 dark:text-sky-400">
-                        Seçili
+                      <span className="inline-flex items-center gap-1.5 font-mono-tabular min-w-0 truncate">
+                        <Footprints
+                          className="w-3.5 h-3.5 text-blue-600 dark:text-sky-400 shrink-0"
+                          aria-hidden="true"
+                        />
+                        {stop.isWalkable === false ? (
+                          <span className="truncate">
+                            Yaya rotası yok ({formatDistanceKm(stop.distanceMeters)} kuş
+                            uçuşu)
+                          </span>
+                        ) : (
+                          <span className="truncate">
+                            Yürüyerek {formatWalkingDuration(stop.walkingMinutes)} ·{' '}
+                            {stop.distanceMeters < 1000
+                              ? formatDistanceMeters(stop.distanceMeters)
+                              : formatDistanceKm(stop.distanceMeters)}
+                          </span>
+                        )}
                       </span>
-                    )}
-                  </div>
+
+                      {crowdednessByStopId?.[stop.id] ? (
+                        <CrowdednessMeter info={crowdednessByStopId[stop.id]} />
+                      ) : isSelected ? (
+                        <span className="text-[11px] font-semibold text-blue-600 dark:text-sky-400">
+                          Seçili
+                        </span>
+                      ) : null}
+                    </div>
 
                   <div className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
                     <motion.div

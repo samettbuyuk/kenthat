@@ -7,6 +7,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import {
   AlertCircle,
+  Clock,
   Compass,
   Footprints,
   ListFilter,
@@ -16,14 +17,20 @@ import {
   RefreshCw,
   Repeat2,
   Sun,
+  Users,
 } from 'lucide-react';
 import { BrandLogo } from './components/BrandLogo';
+import { CrowdednessMeter } from './components/CrowdednessMeter';
 import { IstanbulMapCanvas } from './components/IstanbulMapCanvas';
 import { IstanbulTransitHeader } from './components/IstanbulTransitHeader';
 import { ModeSummaryGrid } from './components/ModeSummaryGrid';
+import { Night24HoursPanel } from './components/Night24HoursPanel';
 import { PlaceSearchBox } from './components/PlaceSearchBox';
 import { StopLinesPanel } from './components/StopLinesPanel';
 import { TransferPlannerPanel } from './components/TransferPlannerPanel';
+import { WeatherClockStrip } from './components/WeatherClockStrip';
+import { useCrowdednessOverlay } from './hooks/useCrowdednessOverlay';
+import { useIstanbulWeather } from './hooks/useIstanbulWeather';
 import { useNearbyIstanbulTransit } from './hooks/useNearbyIstanbulTransit';
 import { useStopTransitDetails } from './hooks/useStopTransitDetails';
 import { useTransitTransferRoutes } from './hooks/useTransitTransferRoutes';
@@ -31,6 +38,7 @@ import {
   DEFAULT_WALKING_SPEED_KMH,
   ISTANBUL_REFERENCE_POINTS,
   type LatLngPoint,
+  type Night24LineInfo,
   type ThemeMode,
   type TransferEndpoint,
   type TransferJourneyOption,
@@ -45,7 +53,9 @@ import {
 
 const GOOGLE_MAPS_API_KEY =
   import.meta.env.VITE_GOOGLE_MAPS_API_KEY ||
-  (typeof process !== 'undefined' ? process.env.GOOGLE_MAPS_API_KEY : '') ||
+  (typeof process !== 'undefined'
+    ? process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY
+    : '') ||
   '';
 
 const WALKING_SPEED_PRESETS = [
@@ -90,8 +100,12 @@ function TransitWorkspace({
   const [hoveredStopId, setHoveredStopId] = useState<string | null>(null);
   const [routeTargetStop, setRouteTargetStop] = useState<TransitStop | null>(null);
   const [isMobileMapExpanded, setIsMobileMapExpanded] = useState(false);
-  const [desktopPanelMode, setDesktopPanelMode] = useState<'stops' | 'transfer'>('stops');
-  const [mobileTab, setMobileTab] = useState<'stops' | 'lines' | 'transfer' | 'map'>('stops');
+  const [desktopPanelMode, setDesktopPanelMode] = useState<
+    'stops' | 'transfer' | 'lines24'
+  >('stops');
+  const [mobileTab, setMobileTab] = useState<
+    'stops' | 'lines' | 'transfer' | 'lines24' | 'map'
+  >('stops');
 
   const [transferOrigin, setTransferOrigin] = useState<TransferEndpoint | null>(null);
   const [originFollowsUser, setOriginFollowsUser] = useState(true);
@@ -99,6 +113,8 @@ function TransitWorkspace({
   const [selectedTransferJourneyId, setSelectedTransferJourneyId] = useState<string | null>(null);
   const [activeMapTransferJourney, setActiveMapTransferJourney] =
     useState<TransferJourneyOption | null>(null);
+
+  const { weather, isLoading: isWeatherLoading } = useIstanbulWeather(userLocation);
 
   const {
     closestByMode,
@@ -167,6 +183,11 @@ function TransitWorkspace({
     error: detailsError,
     refreshDetails,
   } = useStopTransitDetails(speedAdjustedSelectedStop);
+
+  const {
+    majorHubs: majorHubCrowdedness,
+    byStopId: crowdednessByStopId,
+  } = useCrowdednessOverlay(speedAdjustedStopsForMap, weather?.weatherCode);
 
   const {
     journeys: transferJourneys,
@@ -405,6 +426,20 @@ function TransitWorkspace({
             Aktarma
           </a>
           <a
+            href="#yirmi-dort-saat"
+            onClick={() => {
+              setDesktopPanelMode('lines24');
+              setMobileTab('lines24');
+            }}
+            className={`hover:text-slate-950 dark:hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 ${
+              desktopPanelMode === 'lines24'
+                ? 'text-blue-600 dark:text-sky-400 font-semibold'
+                : ''
+            }`}
+          >
+            24 Saat
+          </a>
+          <a
             href="#harita-gorunumu"
             onClick={() => setMobileTab('map')}
             className="hover:text-slate-950 dark:hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
@@ -430,19 +465,19 @@ function TransitWorkspace({
         </div>
       </header>
 
-      {/* Mobile Compact 4-Tab Switcher + Quick Theme Toggle */}
+      {/* Mobile Compact 5-Tab Switcher + Quick Theme Toggle */}
       <div className="lg:hidden px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-between gap-2">
         <div
           role="tablist"
           aria-label="Mobil görünüm seçici"
-          className="flex-1 grid grid-cols-4 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800"
+          className="flex-1 grid grid-cols-5 gap-0.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800"
         >
           <button
             type="button"
             role="tab"
             aria-selected={mobileTab === 'stops'}
             onClick={() => setMobileTab('stops')}
-            className={`relative min-h-[38px] py-1.5 px-1 text-[11px] font-semibold rounded-lg flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
+            className={`relative min-h-[38px] py-1 px-0.5 text-[10px] sm:text-[11px] font-semibold rounded-lg flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
               mobileTab === 'stops'
                 ? 'text-slate-900 dark:text-white'
                 : 'text-slate-500 dark:text-slate-400'
@@ -455,7 +490,7 @@ function TransitWorkspace({
                 className="absolute inset-0 rounded-lg bg-white dark:bg-slate-800 shadow-xs"
               />
             )}
-            <Compass className="w-3.5 h-3.5 relative z-10 shrink-0" aria-hidden="true" />
+            <Compass className="w-3 h-3 relative z-10 shrink-0" aria-hidden="true" />
             <span className="relative z-10 truncate">Duraklar</span>
           </button>
 
@@ -464,7 +499,7 @@ function TransitWorkspace({
             role="tab"
             aria-selected={mobileTab === 'lines'}
             onClick={() => setMobileTab('lines')}
-            className={`relative min-h-[38px] py-1.5 px-1 text-[11px] font-semibold rounded-lg flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
+            className={`relative min-h-[38px] py-1 px-0.5 text-[10px] sm:text-[11px] font-semibold rounded-lg flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
               mobileTab === 'lines'
                 ? 'text-slate-900 dark:text-white'
                 : 'text-slate-500 dark:text-slate-400'
@@ -477,7 +512,7 @@ function TransitWorkspace({
                 className="absolute inset-0 rounded-lg bg-white dark:bg-slate-800 shadow-xs"
               />
             )}
-            <ListFilter className="w-3.5 h-3.5 relative z-10 shrink-0" aria-hidden="true" />
+            <ListFilter className="w-3 h-3 relative z-10 shrink-0" aria-hidden="true" />
             <span className="relative z-10 truncate">Hatlar</span>
           </button>
 
@@ -486,7 +521,7 @@ function TransitWorkspace({
             role="tab"
             aria-selected={mobileTab === 'transfer'}
             onClick={() => setMobileTab('transfer')}
-            className={`relative min-h-[38px] py-1.5 px-1 text-[11px] font-semibold rounded-lg flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
+            className={`relative min-h-[38px] py-1 px-0.5 text-[10px] sm:text-[11px] font-semibold rounded-lg flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
               mobileTab === 'transfer'
                 ? 'text-slate-900 dark:text-white'
                 : 'text-slate-500 dark:text-slate-400'
@@ -499,8 +534,30 @@ function TransitWorkspace({
                 className="absolute inset-0 rounded-lg bg-white dark:bg-slate-800 shadow-xs"
               />
             )}
-            <Repeat2 className="w-3.5 h-3.5 relative z-10 shrink-0" aria-hidden="true" />
+            <Repeat2 className="w-3 h-3 relative z-10 shrink-0" aria-hidden="true" />
             <span className="relative z-10 truncate">Aktarma</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileTab === 'lines24'}
+            onClick={() => setMobileTab('lines24')}
+            className={`relative min-h-[38px] py-1 px-0.5 text-[10px] sm:text-[11px] font-semibold rounded-lg flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
+              mobileTab === 'lines24'
+                ? 'text-slate-900 dark:text-white'
+                : 'text-slate-500 dark:text-slate-400'
+            }`}
+          >
+            {mobileTab === 'lines24' && (
+              <motion.span
+                layoutId="mobile-view-tab"
+                transition={{ type: 'spring', stiffness: 450, damping: 34 }}
+                className="absolute inset-0 rounded-lg bg-white dark:bg-slate-800 shadow-xs"
+              />
+            )}
+            <Clock className="w-3 h-3 relative z-10 shrink-0" aria-hidden="true" />
+            <span className="relative z-10 truncate">24 Saat</span>
           </button>
 
           <button
@@ -508,7 +565,7 @@ function TransitWorkspace({
             role="tab"
             aria-selected={mobileTab === 'map'}
             onClick={() => setMobileTab('map')}
-            className={`relative min-h-[38px] py-1.5 px-1 text-[11px] font-semibold rounded-lg flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
+            className={`relative min-h-[38px] py-1 px-0.5 text-[10px] sm:text-[11px] font-semibold rounded-lg flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
               mobileTab === 'map'
                 ? 'text-slate-900 dark:text-white'
                 : 'text-slate-500 dark:text-slate-400'
@@ -521,7 +578,7 @@ function TransitWorkspace({
                 className="absolute inset-0 rounded-lg bg-white dark:bg-slate-800 shadow-xs"
               />
             )}
-            <MapIcon className="w-3.5 h-3.5 relative z-10 shrink-0" aria-hidden="true" />
+            <MapIcon className="w-3 h-3 relative z-10 shrink-0" aria-hidden="true" />
             <span className="relative z-10 truncate">Harita</span>
           </button>
         </div>
@@ -549,10 +606,18 @@ function TransitWorkspace({
           }`}
         >
           <div className="p-4 sm:p-5 space-y-4">
+            {/* Minimal Live Weather & Clock Strip */}
+            <WeatherClockStrip
+              weather={weather}
+              isWeatherLoading={isWeatherLoading}
+            />
+
             {/* Mobile 'Duraklar' or Desktop Always Visible */}
             <div
               className={
-                mobileTab === 'lines' || mobileTab === 'transfer'
+                mobileTab === 'lines' ||
+                mobileTab === 'transfer' ||
+                mobileTab === 'lines24'
                   ? 'hidden lg:block space-y-4'
                   : 'space-y-4'
               }
@@ -758,18 +823,18 @@ function TransitWorkspace({
                 </AnimatePresence>
               </section>
 
-              {/* Desktop Mode Switcher: Yakın Duraklar vs Aktarma Planla */}
+              {/* Desktop Mode Switcher: Yakın Duraklar vs Aktarma vs 24 Saat */}
               <div
                 role="tablist"
                 aria-label="Masaüstü çalışma görünümü"
-                className="hidden lg:grid grid-cols-2 gap-1 p-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
+                className="hidden lg:grid grid-cols-3 gap-1 p-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
               >
                 <button
                   type="button"
                   role="tab"
                   aria-selected={desktopPanelMode === 'stops'}
                   onClick={() => setDesktopPanelMode('stops')}
-                  className={`relative min-h-[40px] px-3 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
+                  className={`relative min-h-[40px] px-2.5 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
                     desktopPanelMode === 'stops'
                       ? 'text-white dark:text-slate-950'
                       : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -782,8 +847,8 @@ function TransitWorkspace({
                       className="absolute inset-0 rounded-lg bg-slate-900 dark:bg-sky-400"
                     />
                   )}
-                  <Compass className="w-3.5 h-3.5 relative z-10" aria-hidden="true" />
-                  <span className="relative z-10">Yakın Duraklar &amp; Hatlar</span>
+                  <Compass className="w-3.5 h-3.5 relative z-10 shrink-0" aria-hidden="true" />
+                  <span className="relative z-10">Yakın Duraklar</span>
                 </button>
 
                 <button
@@ -791,7 +856,7 @@ function TransitWorkspace({
                   role="tab"
                   aria-selected={desktopPanelMode === 'transfer'}
                   onClick={() => setDesktopPanelMode('transfer')}
-                  className={`relative min-h-[40px] px-3 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
+                  className={`relative min-h-[40px] px-2.5 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
                     desktopPanelMode === 'transfer'
                       ? 'text-white dark:text-slate-950'
                       : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -804,15 +869,38 @@ function TransitWorkspace({
                       className="absolute inset-0 rounded-lg bg-slate-900 dark:bg-sky-400"
                     />
                   )}
-                  <Repeat2 className="w-3.5 h-3.5 relative z-10" aria-hidden="true" />
-                  <span className="relative z-10">Toplu Taşıma Aktarma</span>
+                  <Repeat2 className="w-3.5 h-3.5 relative z-10 shrink-0" aria-hidden="true" />
+                  <span className="relative z-10">Aktarma</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={desktopPanelMode === 'lines24'}
+                  onClick={() => setDesktopPanelMode('lines24')}
+                  className={`relative min-h-[40px] px-2.5 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
+                    desktopPanelMode === 'lines24'
+                      ? 'text-white dark:text-slate-950'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {desktopPanelMode === 'lines24' && (
+                    <motion.span
+                      layoutId="desktop-workspace-tab"
+                      transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                      className="absolute inset-0 rounded-lg bg-slate-900 dark:bg-sky-400"
+                    />
+                  )}
+                  <Clock className="w-3.5 h-3.5 relative z-10 shrink-0" aria-hidden="true" />
+                  <span className="relative z-10">24 Saat Hatlar</span>
                 </button>
               </div>
 
               {/* 6-Mode Closest Istanbul Stops */}
-              <div className={desktopPanelMode === 'transfer' ? 'lg:hidden' : 'block'}>
+              <div className={desktopPanelMode !== 'stops' ? 'lg:hidden' : 'block'}>
                 <ModeSummaryGrid
                   closestByMode={speedAdjustedClosestByMode}
+                  crowdednessByStopId={crowdednessByStopId}
                   userLocation={userLocation}
                   selectedStopId={speedAdjustedSelectedStop?.id || null}
                   hoveredStopId={hoveredStopId}
@@ -849,6 +937,11 @@ function TransitWorkspace({
 
               <StopLinesPanel
                 stop={speedAdjustedSelectedStop}
+                crowdednessInfo={
+                  speedAdjustedSelectedStop
+                    ? crowdednessByStopId[speedAdjustedSelectedStop.id]
+                    : undefined
+                }
                 details={stopDetails}
                 isLoading={isLoadingDetails}
                 error={detailsError}
@@ -889,6 +982,35 @@ function TransitWorkspace({
                 onRefresh={refreshTransfers}
               />
             </div>
+
+            {/* Dedicated 24-Hour Transit Lines Tab */}
+            <div
+              className={
+                mobileTab === 'lines24'
+                  ? 'block'
+                  : desktopPanelMode === 'lines24'
+                  ? 'hidden lg:block'
+                  : 'hidden'
+              }
+            >
+              <Night24HoursPanel
+                onSelectHubLocation={(point, label) => {
+                  handleSelectCustomLocation(point, label);
+                  setDesktopPanelMode('stops');
+                  setMobileTab('stops');
+                }}
+                onPlanTransferToHub={(line: Night24LineInfo) => {
+                  setTransferDestination({
+                    label: line.hubName,
+                    subtitle: `${line.code} · ${line.name}`,
+                    location: line.hubLocation,
+                    mode: line.mode,
+                  });
+                  setDesktopPanelMode('transfer');
+                  setMobileTab('transfer');
+                }}
+              />
+            </div>
           </div>
         </aside>
 
@@ -909,6 +1031,8 @@ function TransitWorkspace({
             hoveredStopId={hoveredStopId}
             routeTargetStop={speedAdjustedRouteTargetStop}
             activeTransferJourney={activeMapTransferJourney}
+            majorHubCrowdedness={majorHubCrowdedness}
+            crowdednessByStopId={crowdednessByStopId}
             isLocating={isLocating}
             isMobileExpanded={isMobileMapExpanded || mobileTab === 'map'}
             onToggleMobileExpand={() => setIsMobileMapExpanded((v) => !v)}
@@ -918,7 +1042,144 @@ function TransitWorkspace({
             onRequestDirections={handleRequestDirections}
             onClearRoute={handleClearRoute}
             onClearTransferJourney={() => setActiveMapTransferJourney(null)}
+            onSelectHubCenter={(point, label) => {
+              handleSelectCustomLocation(point, label);
+            }}
           />
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function NoMapsKeyWorkspace({
+  theme,
+  onToggleTheme,
+}: {
+  theme: ThemeMode;
+  onToggleTheme: () => void;
+}) {
+  const { weather, isLoading: isWeatherLoading } = useIstanbulWeather(null);
+  const { majorHubs } = useCrowdednessOverlay([], weather?.weatherCode);
+
+  return (
+    <div className="min-h-screen flex flex-col bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-300">
+      <header className="sticky top-0 z-30 h-14 sm:h-16 px-4 sm:px-6 flex items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md">
+        <div className="inline-flex items-center gap-2.5 text-lg sm:text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          <BrandLogo className="w-7 h-7 shrink-0" />
+          <span>KentHat</span>
+        </div>
+
+        <button
+          type="button"
+          onClick={onToggleTheme}
+          aria-label={theme === 'dark' ? 'Gündüz moduna geç' : 'Gece moduna geç'}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-100"
+        >
+          {theme === 'dark' ? (
+            <>
+              <Sun className="w-4 h-4 text-amber-400" aria-hidden="true" />
+              <span>Gündüz Modu</span>
+            </>
+          ) : (
+            <>
+              <Moon className="w-4 h-4 text-blue-600" aria-hidden="true" />
+              <span>Gece Modu</span>
+            </>
+          )}
+        </button>
+      </header>
+
+      <main className="flex-1 flex flex-col lg:flex-row">
+        <aside className="w-full lg:w-[530px] xl:w-[570px] shrink-0 lg:border-r border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 lg:h-[calc(100vh-65px)] lg:overflow-y-auto custom-scrollbar">
+          <div className="p-4 sm:p-5 space-y-4">
+            <WeatherClockStrip
+              weather={weather}
+              isWeatherLoading={isWeatherLoading}
+            />
+
+            <Night24HoursPanel
+              onSelectHubLocation={() => {}}
+              onPlanTransferToHub={() => {}}
+            />
+          </div>
+        </aside>
+
+        <section className="flex-1 min-w-0 p-4 sm:p-6 space-y-4 overflow-y-auto">
+          <div className="rounded-2xl border border-amber-200 dark:border-amber-800/70 bg-white dark:bg-slate-900 p-5 space-y-3">
+            <div className="flex items-start gap-3">
+              <AlertCircle
+                className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5"
+                aria-hidden="true"
+              />
+              <div className="space-y-2 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
+                <h1 className="text-base font-extrabold text-slate-900 dark:text-white">
+                  Google Maps API Anahtarı Yapılandırması Gerekiyor
+                </h1>
+                <p>
+                  Canlı harita ve durak verilerini yükleyebilmek için ortam
+                  değişkeni olarak{' '}
+                  <code className="font-mono-tabular px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800">
+                    VITE_GOOGLE_MAPS_API_KEY
+                  </code>{' '}
+                  tanımlanmalıdır.
+                </p>
+                <ol className="list-decimal list-inside space-y-1 text-xs text-slate-600 dark:text-slate-400">
+                  <li>
+                    Ortam değişkenlerine (AI Studio Secrets /{' '}
+                    <code className="font-mono-tabular">.env</code>) geçerli bir{' '}
+                    <code className="font-mono-tabular">
+                      VITE_GOOGLE_MAPS_API_KEY
+                    </code>{' '}
+                    ekleyin.
+                  </li>
+                  <li>
+                    Google Cloud projesinde <strong>Maps JavaScript API</strong>,{' '}
+                    <strong>Places API (New)</strong> ve{' '}
+                    <strong>Routes API</strong> servislerini etkinleştirin.
+                  </li>
+                  <li>
+                    Anahtar eklendikten sonra geliştirme sunucusunu yeniden
+                    başlatın.
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <Users
+                  className="w-4 h-4 text-blue-600 dark:text-sky-400"
+                  aria-hidden="true"
+                />
+                <span>İstanbul Ana Aktarma Merkezleri Anlık Yoğunluk</span>
+              </h2>
+              <span className="text-[11px] font-mono-tabular text-slate-500 dark:text-slate-400">
+                Simüle Canlı Veri
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {majorHubs.map((hub) => (
+                <div
+                  key={hub.stopId}
+                  className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-3 flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                      {hub.stopName}
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                      {hub.advice}
+                    </div>
+                  </div>
+                  <CrowdednessMeter info={hub} />
+                </div>
+              ))}
+            </div>
+          </div>
         </section>
       </main>
     </div>
@@ -961,19 +1222,7 @@ export default function App() {
   }, []);
 
   if (!GOOGLE_MAPS_API_KEY) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
-        <div className="max-w-md w-full rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 text-center space-y-3">
-          <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" aria-hidden="true" />
-          <h1 className="text-lg font-bold">Google Maps API Anahtarı Eksik</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            Harita ve toplu taşıma duraklarını yükleyebilmek için{' '}
-            <code className="font-mono-tabular">VITE_GOOGLE_MAPS_API_KEY</code>{' '}
-            yapılandırılmalıdır.
-          </p>
-        </div>
-      </div>
-    );
+    return <NoMapsKeyWorkspace theme={theme} onToggleTheme={toggleTheme} />;
   }
 
   return (

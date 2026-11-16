@@ -120,6 +120,53 @@ export interface TransferJourneyOption {
 
 export const DEFAULT_WALKING_SPEED_KMH = 4.5;
 
+export interface IstanbulWeatherData {
+  temperatureC: number;
+  apparentTempC: number;
+  windSpeedKmh: number;
+  weatherCode: number;
+  conditionLabel: string;
+  isDay: boolean;
+  fetchedAtIso: string;
+}
+
+export type CrowdednessLevel = 'low' | 'moderate' | 'high' | 'very_high';
+
+export interface StopCrowdednessInfo {
+  stopId: string;
+  stopName: string;
+  mode: TransitMode;
+  location: LatLngPoint;
+  occupancyPercent: number;
+  level: CrowdednessLevel;
+  label: string;
+  trend: 'rising' | 'steady' | 'falling';
+  estimatedWaitMinutes: number;
+  advice: string;
+  updatedAtIso: string;
+  isMajorHub?: boolean;
+}
+
+export type Night24ScheduleType = '24/7' | 'weekend-night';
+
+export interface Night24LineInfo {
+  id: string;
+  code: string;
+  name: string;
+  mode: TransitMode;
+  corridor: string;
+  scheduleType: Night24ScheduleType;
+  scheduleLabel: string;
+  operatingHours: string;
+  weekdayNightWindow?: string;
+  headwayText: string;
+  notes?: string;
+  hubLocation: LatLngPoint;
+  hubName: string;
+  color?: string;
+  textColor?: string;
+}
+
 export interface ReferenceDistrict {
   id: string;
   name: string;

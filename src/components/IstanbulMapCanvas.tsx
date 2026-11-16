@@ -20,12 +20,14 @@ import {
   Minimize2,
   Navigation,
   Repeat2,
+  Users,
   X,
 } from 'lucide-react';
 import {
   type ActiveWalkingRoute,
   ISTANBUL_CENTER,
   type LatLngPoint,
+  type StopCrowdednessInfo,
   type ThemeMode,
   type TransferJourneyOption,
   type TransitStop,
@@ -40,6 +42,7 @@ import {
   formatWalkingDuration,
   getIstanbulLineColors,
 } from '../utils/transitUtils';
+import { CrowdednessMeter, getCrowdednessColorMeta } from './CrowdednessMeter';
 import { TransitModeIcon } from './TransitModeIcon';
 
 interface IstanbulMapCanvasProps {
@@ -51,6 +54,8 @@ interface IstanbulMapCanvasProps {
   hoveredStopId: string | null;
   routeTargetStop: TransitStop | null;
   activeTransferJourney: TransferJourneyOption | null;
+  majorHubCrowdedness?: StopCrowdednessInfo[];
+  crowdednessByStopId?: Record<string, StopCrowdednessInfo>;
   isLocating: boolean;
   isMobileExpanded: boolean;
   onToggleMobileExpand: () => void;
@@ -60,6 +65,7 @@ interface IstanbulMapCanvasProps {
   onRequestDirections: (stop: TransitStop) => void;
   onClearRoute: () => void;
   onClearTransferJourney: () => void;
+  onSelectHubCenter?: (point: LatLngPoint, label: string) => void;
 }
 
 function MapCameraSync({
@@ -345,8 +351,75 @@ function TransferRouteRenderer({
   return null;
 }
 
+function MajorHubCrowdednessMarker({
+  hub,
+  isInfoOpen,
+  onClick,
+  onCloseInfo,
+  onSelectHubCenter,
+}: {
+  hub: StopCrowdednessInfo;
+  isInfoOpen: boolean;
+  onClick: () => void;
+  onCloseInfo: () => void;
+  onSelectHubCenter?: () => void;
+}) {
+  const [markerRef, marker] = useAdvancedMarkerRef();
+  const colorMeta = getCrowdednessColorMeta(hub.level);
+
+  return (
+    <>
+      <AdvancedMarker
+        ref={markerRef}
+        position={hub.location}
+        title={`${hub.stopName} — ${hub.label} (%${hub.occupancyPercent})`}
+        zIndex={18}
+        onClick={onClick}
+      >
+        <div
+          className="cursor-pointer px-2 py-0.5 rounded-lg text-[10px] font-extrabold font-mono-tabular text-white shadow-md border border-white/90 flex items-center gap-1 whitespace-nowrap"
+          style={{ backgroundColor: colorMeta.hex }}
+        >
+          <Users className="w-3 h-3" aria-hidden="true" />
+          <span>%{hub.occupancyPercent}</span>
+        </div>
+      </AdvancedMarker>
+
+      {isInfoOpen && marker && (
+        <InfoWindow anchor={marker} onCloseClick={onCloseInfo} maxWidth={260}>
+          <div className="p-1 text-slate-900 space-y-1.5">
+            <div className="text-xs font-extrabold text-slate-900">
+              {hub.stopName}
+            </div>
+            <div
+              className="text-xs font-bold font-mono-tabular"
+              style={{ color: colorMeta.hex }}
+            >
+              {hub.label} (%{hub.occupancyPercent}) · Tahmini Bekleme ~
+              {hub.estimatedWaitMinutes} dk
+            </div>
+            <p className="text-[11px] text-slate-600 leading-snug">
+              {hub.advice}
+            </p>
+            {onSelectHubCenter && (
+              <button
+                type="button"
+                onClick={onSelectHubCenter}
+                className="w-full mt-1 px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-colors"
+              >
+                Bu Merkeze Göre Durakları Gör
+              </button>
+            )}
+          </div>
+        </InfoWindow>
+      )}
+    </>
+  );
+}
+
 function StopMarkerItem({
   stop,
+  crowdednessInfo,
   isSelected,
   isHovered,
   isInfoOpen,
@@ -356,6 +429,7 @@ function StopMarkerItem({
   onRequestDirections,
 }: {
   stop: TransitStop;
+  crowdednessInfo?: StopCrowdednessInfo;
   isSelected: boolean;
   isHovered: boolean;
   isInfoOpen: boolean;
@@ -393,11 +467,12 @@ function StopMarkerItem({
           >
             <TransitModeIcon mode={stop.mode} className="w-4 h-4" />
           </div>
-          <span className="mt-1 px-1.5 py-0.5 rounded bg-white/95 dark:bg-slate-900/95 text-[10px] font-bold text-slate-900 dark:text-slate-100 shadow-sm border border-slate-200/80 dark:border-slate-700/80 whitespace-nowrap max-w-[125px] truncate">
+          <span className="mt-1 px-1.5 py-0.5 rounded bg-white/95 dark:bg-slate-900/95 text-[10px] font-bold text-slate-900 dark:text-slate-100 shadow-sm border border-slate-200/80 dark:border-slate-700/80 whitespace-nowrap max-w-[145px] truncate">
             {meta.shortLabel} ·{' '}
             {stop.isWalkable === false
               ? 'Karşı yaka'
               : formatWalkingDuration(stop.walkingMinutes)}
+            {crowdednessInfo ? ` · %${crowdednessInfo.occupancyPercent}` : ''}
           </span>
         </div>
       </AdvancedMarker>
@@ -416,6 +491,12 @@ function StopMarkerItem({
                 ? 'Yaya rotası bulunamadı'
                 : `Yürüyerek ${formatWalkingDuration(stop.walkingMinutes)} · ${formatDistanceKm(stop.distanceMeters)}`}
             </div>
+            {crowdednessInfo && (
+              <div className="text-[11px] font-semibold text-slate-700 mt-1 font-mono-tabular">
+                Anlık Yoğunluk: {crowdednessInfo.label} (%
+                {crowdednessInfo.occupancyPercent})
+              </div>
+            )}
             <div className="mt-2.5 flex items-center gap-1.5">
               <button
                 type="button"
@@ -450,6 +531,8 @@ export function IstanbulMapCanvas({
   hoveredStopId,
   routeTargetStop,
   activeTransferJourney,
+  majorHubCrowdedness = [],
+  crowdednessByStopId,
   isLocating,
   isMobileExpanded,
   onToggleMobileExpand,
@@ -459,9 +542,13 @@ export function IstanbulMapCanvas({
   onRequestDirections,
   onClearRoute,
   onClearTransferJourney,
+  onSelectHubCenter,
 }: IstanbulMapCanvasProps) {
   const [showTransitLayer, setShowTransitLayer] = useState(true);
+  const [showCrowdednessOverlay, setShowCrowdednessOverlay] = useState(true);
+  const [showCrowdednessDrawer, setShowCrowdednessDrawer] = useState(false);
   const [infoStopId, setInfoStopId] = useState<string | null>(null);
+  const [infoHubId, setInfoHubId] = useState<string | null>(null);
   const [activeRoute, setActiveRoute] = useState<ActiveWalkingRoute | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
@@ -565,17 +652,44 @@ export function IstanbulMapCanvas({
           </AdvancedMarker>
         )}
 
+        {/* Major Istanbul Hubs Crowdedness Data Overlay Markers */}
+        {showCrowdednessOverlay &&
+          majorHubCrowdedness.map((hub) => (
+            <MajorHubCrowdednessMarker
+              key={hub.stopId}
+              hub={hub}
+              isInfoOpen={infoHubId === hub.stopId}
+              onClick={() => {
+                setInfoStopId(null);
+                setInfoHubId(hub.stopId);
+              }}
+              onCloseInfo={() => setInfoHubId(null)}
+              onSelectHubCenter={
+                onSelectHubCenter
+                  ? () => {
+                      setInfoHubId(null);
+                      onSelectHubCenter(hub.location, hub.stopName);
+                    }
+                  : undefined
+              }
+            />
+          ))}
+
         {/* Transit Stop Markers */}
         {stops.map((stop) => (
           <StopMarkerItem
             key={stop.id}
             stop={stop}
+            crowdednessInfo={
+              showCrowdednessOverlay ? crowdednessByStopId?.[stop.id] : undefined
+            }
             isSelected={
               selectedStop?.id === stop.id || routeTargetStop?.id === stop.id
             }
             isHovered={hoveredStopId === stop.id}
             isInfoOpen={infoStopId === stop.id}
             onClick={() => {
+              setInfoHubId(null);
               setInfoStopId(stop.id);
               onInspectLines(stop);
             }}
@@ -614,18 +728,49 @@ export function IstanbulMapCanvas({
 
       {/* Top Map Controls */}
       <div className="absolute top-3 left-3 right-3 z-20 flex items-center justify-between gap-2 pointer-events-none">
-        <button
-          type="button"
-          onClick={() => setShowTransitLayer((v) => !v)}
-          className={`pointer-events-auto inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-xl border shadow-md backdrop-blur-md transition-colors ${
-            showTransitLayer
-              ? 'bg-slate-900/90 dark:bg-sky-500/95 text-white dark:text-slate-950 border-slate-800 dark:border-sky-400'
-              : 'bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" aria-hidden="true" />
-          <span>{showTransitLayer ? 'Hatlar Açık' : 'Hatları Göster'}</span>
-        </button>
+        <div className="flex items-center gap-2 pointer-events-auto flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowTransitLayer((v) => !v)}
+            className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-xl border shadow-md backdrop-blur-md transition-colors ${
+              showTransitLayer
+                ? 'bg-slate-900/90 dark:bg-sky-500/95 text-white dark:text-slate-950 border-slate-800 dark:border-sky-400'
+                : 'bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>{showTransitLayer ? 'Hatlar Açık' : 'Hatları Göster'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowCrowdednessOverlay((v) => {
+                const next = !v;
+                if (!next) setShowCrowdednessDrawer(false);
+                return next;
+              });
+            }}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border shadow-md backdrop-blur-md transition-colors ${
+              showCrowdednessOverlay
+                ? 'bg-amber-500/95 text-slate-950 border-amber-400'
+                : 'bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>Yoğunluk</span>
+          </button>
+
+          {showCrowdednessOverlay && majorHubCrowdedness.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowCrowdednessDrawer((v) => !v)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-100 shadow-md backdrop-blur-md hover:bg-white dark:hover:bg-slate-800 transition-colors"
+            >
+              <span>Ana Durak Yoğunluğu</span>
+            </button>
+          )}
+        </div>
 
         <button
           type="button"
@@ -645,6 +790,62 @@ export function IstanbulMapCanvas({
           )}
         </button>
       </div>
+
+      {/* Major Hubs Live Crowdedness Overlay Drawer */}
+      <AnimatePresence>
+        {showCrowdednessOverlay && showCrowdednessDrawer && majorHubCrowdedness.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2 }}
+            className="absolute top-14 left-3 right-3 sm:right-auto sm:w-80 z-20 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-2xl overflow-hidden"
+          >
+            <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+              <div className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-amber-500" aria-hidden="true" />
+                <span>Ana Duraklar Anlık Yoğunluk</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCrowdednessDrawer(false)}
+                aria-label="Yoğunluk panelini kapat"
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <ul className="max-h-64 overflow-y-auto custom-scrollbar divide-y divide-slate-100 dark:divide-slate-800/80">
+              {[...majorHubCrowdedness]
+                .sort((a, b) => b.occupancyPercent - a.occupancyPercent)
+                .map((hub) => (
+                  <li key={hub.stopId}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onSelectHubCenter) {
+                          onSelectHubCenter(hub.location, hub.stopName);
+                        }
+                        setShowCrowdednessDrawer(false);
+                      }}
+                      className="w-full px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                          {hub.stopName}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          ~{hub.estimatedWaitMinutes} dk bekleme
+                        </div>
+                      </div>
+                      <CrowdednessMeter info={hub} />
+                    </button>
+                  </li>
+                ))}
+            </ul>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Onboarding Card when user hasn't picked a location */}
       <AnimatePresence>
