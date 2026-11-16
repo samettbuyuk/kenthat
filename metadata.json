@@ -1,0 +1,6 @@
+{
+  "name": "İstRota — İstanbul Toplu Taşıma Bulucu",
+  "description": "Anlık konumunuza göre İstanbul'daki en yakın otobüs, metrobüs, Marmaray, metro, tramvay ve vapur duraklarını yürüme süresi, mesafesi ve canlı yol tarifiyle gösteren interaktif harita uygulaması.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
